@@ -1,5 +1,7 @@
 # University_AI_Project
 
+Live example at https://masterofthepuppets.github.io!
+
 ## Problem formulation:
 
 A human or AI player will try to solve a randomly generated maze, trying to go from point A to point B avoiding multiple obstacles on the way.
