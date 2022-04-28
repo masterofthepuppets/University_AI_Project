@@ -5,6 +5,74 @@ let mazeHeight;
 let mazeWidth;
 let player;
 
+const htop = 0;
+const hparent = i => ((i + 1) >>> 1) - 1;
+const left = i => (i << 1) + 1;
+const right = i => (i + 1) << 1;
+
+class PriorityQueue {
+    constructor(comparator = (a, b) => a[1] > b[1]) {
+        this._heap = [];
+        this._comparator = comparator;
+    }
+    size() {
+        return this._heap.length;
+    }
+    isEmpty() {
+        return this.size() == 0;
+    }
+    peek() {
+        return this._heap[htop];
+    }
+    push(...values) {
+        values.forEach(value => {
+            this._heap.push(value);
+            this._siftUp();
+        });
+        return this.size();
+    }
+    pop() {
+        const poppedValue = this.peek();
+        const bottom = this.size() - 1;
+        if (bottom > htop) {
+            this._swap(htop, bottom);
+        }
+        this._heap.pop();
+        this._siftDown();
+        return poppedValue;
+    }
+    replace(value) {
+        const replacedValue = this.peek();
+        this._heap[htop] = value;
+        this._siftDown();
+        return replacedValue;
+    }
+    _greater(i, j) {
+        return this._comparator(this._heap[i], this._heap[j]);
+    }
+    _swap(i, j) {
+        [this._heap[i], this._heap[j]] = [this._heap[j], this._heap[i]];
+    }
+    _siftUp() {
+        let node = this.size() - 1;
+        while (node > htop && this._greater(node, hparent(node))) {
+            this._swap(node, hparent(node));
+            node = hparent(node);
+        }
+    }
+    _siftDown() {
+        let node = htop;
+        while (
+            (left(node) < this.size() && this._greater(left(node), node)) ||
+            (right(node) < this.size() && this._greater(right(node), node))
+        ) {
+            let maxChild = (right(node) < this.size() && this._greater(right(node), left(node))) ? right(node) : left(node);
+            this._swap(node, maxChild);
+            node = maxChild;
+        }
+    }
+}
+
 class Player {
     constructor() {
         this.reset();
@@ -193,6 +261,14 @@ function onClick(event) {
     maze.generate();
 }
 
+function onSolveClick(event) {
+	document.getElementById('generate').disabled = true;
+    document.getElementById('auto_solve').disabled = true;
+    player.reset();
+	maze.redraw();
+    auto_solve();
+}
+
 function onControlClick(event) {
     switch (event.target.id) {
         case 'left':
@@ -253,6 +329,101 @@ function onKeyDown(event) {
     maze.redraw();
 }
 
+function neighbors(mazeCell) {
+	let x = mazeCell.col;
+	let y = mazeCell.row;
+	let neighbors = [[x + 1, y], [x - 1, y], [x, y - 1], [x, y + 1]];
+
+	if ((x + y) % 2 == 0) {
+		neighbors.reverse();
+	}
+	neighbors = neighbors.filter(pair => (pair[0] >= 0 && pair[0] < maze.cols && pair[1] >= 0 && pair[1] < maze.rows));
+	
+	
+	if (mazeCell.eastWall) {
+		neighbors = neighbors.filter(function(e) { return (e[0] != x + 1) });
+	}
+	
+	if (mazeCell.westWall) {
+		neighbors = neighbors.filter(function(e) { return (e[0] != x - 1) });
+	}
+	if (mazeCell.northWall) {
+		neighbors = neighbors.filter(function(e) { return (e[1] != y - 1) });
+	}
+	if (mazeCell.southWall) {
+		neighbors = neighbors.filter(function(e) { return (e[1] != y + 1) });
+	}
+	return neighbors;
+}
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function heuristic(c1, c2) {
+	return Math.abs(c1[0] - c2[0]) + Math.abs(c1[1] - c2[1]);
+}
+
+async function auto_solve() {
+	const delay = parseInt(prompt('Enter required delay of movement in milliseconds:'));
+	let start = [0, 0];
+	let goal = [maze.cols - 1, maze.rows - 1];
+	let path = [];
+	let frontier = new PriorityQueue();
+	frontier.push([start, 0]);
+	
+	let came_from = new Map();
+	let cost_so_far = new Map();
+	
+	came_from.set(start.toString(), null);
+	cost_so_far.set(start.toString(), 0);
+	
+	while (!frontier.isEmpty()) {
+		let [current, current_priority]	= frontier.pop();
+		if (current.toString() == goal.toString()) {
+			break;
+		}
+		let neighborCells = neighbors(maze.cells[current[0]][current[1]]);
+		for (let i = 0; i < neighborCells.length; i++) {
+			let next = neighborCells[i];
+			let new_cost = cost_so_far.get(current.toString()) + 1;
+			
+			if (!cost_so_far.has(next.toString()) || new_cost < cost_so_far.get(next.toString())) {
+				cost_so_far.set(next.toString(), new_cost);
+				let priority = new_cost + heuristic(next, goal);
+				frontier.push([next, priority]);
+				came_from.set(next.toString(), current);
+			}
+		}
+	}
+	
+	let cur = goal.toString();
+	while (cur != start.toString()) {
+		path.push(cur.split(',').map(r => parseInt(r)));
+		cur = came_from.get(cur.toString()).toString();
+	}
+	path.push(start);
+	path.reverse();
+	
+	for (let i = 1; i < path.length; i++) {
+		let move = path[i];
+		let prev = path[i - 1];
+		if (move[0] == prev[0] + 1) {
+			player.col += 1;
+		} else if (move[0] == prev[0] - 1) {
+			player.col -= 1;
+		} else if (move[1] == prev[1] + 1) {
+			player.row += 1;
+		} else if (move[1] == prev[1] - 1) {
+			player.row -= 1;
+		}
+		maze.redraw();
+		await sleep(delay);
+	}
+	document.getElementById('generate').disabled = false;
+    document.getElementById('auto_solve').disabled = false;
+}
+
 function onLoad() {
 
     canvas = document.getElementById('maze');
@@ -263,6 +434,7 @@ function onLoad() {
 
     document.addEventListener('keydown', onKeyDown);
     document.getElementById('generate').addEventListener('click', onClick);
+    document.getElementById('auto_solve').addEventListener('click', onSolveClick);
     document.getElementById('up').addEventListener('click', onControlClick);
     document.getElementById('right').addEventListener('click', onControlClick);
     document.getElementById('down').addEventListener('click', onControlClick);
